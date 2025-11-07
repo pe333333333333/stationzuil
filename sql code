@@ -1,1 +1,49 @@
+CREATE TABLE beoordeling ( 
 
+beoordelingid SERIAL PRIMARY KEY, 
+
+datum DATE, 
+
+berichtid INT, 
+
+moderatorid INT, 
+
+status varchar(140), 
+
+FOREIGN KEY (moderatorID) REFERENCES moderation(moderatorID), 
+
+FOREIGN KEY (berichtID) REFERENCES berichten(berichtID) 
+
+); 
+
+CREATE TABLE berichten ( 
+
+berichtid SERIAL PRIMARY KEY, 
+
+datum DATE, 
+
+naam varchar(140) NULL, 
+
+station varchar(140) 
+
+bericht varchar(140) 
+
+); 
+
+CREATE TABLE moderation ( 
+
+moderatorid SERIAL PRIMARY KEY, 
+
+naam varchar(140), 
+
+email varchar(140) 
+
+); 
+
+INSERT INTO beoordeling (beoordeling, datum, berichtid, moderatorid, status) 
+
+VALUES (%s, %s, %s, %s, %s); 
+
+INSERT INTO moderation (naam, email) VALUES (%s, %s) 
+
+INSERT INTO berichten (datum, naam, station, bericht) VALUES (%s, %s, %s, %s) 
