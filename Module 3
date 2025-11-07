@@ -1,1 +1,141 @@
+import psycopg2
+import tkinter as tk
+import requests
+from tkinter import *
+import datetime
+import json
+import random
+from tkinter import PhotoImage
+
+def maak_connectie():
+    """Verbinding met de database maken."""
+    verbinding = psycopg2.connect(
+        host='4.231.108.4',       # IP van mijn Azure-server
+        dbname='Stationszuil',     # Database naam
+        user='postgres',
+        port='5432',               # Standaard PostgreSQL poort
+        password='0000'  # Wachtwoord
+    )
+    return verbinding
+
+
+def lees_stations():
+    """Leest alle stations uit een tekstbestand."""
+    with open('stations.txt', 'r') as bestand:
+        stations = bestand.read().splitlines()
+    gekozen_station = random.choice(stations)
+    return gekozen_station
+
+
+def openweathermap(plaatsnaam):
+    """Haalt het weer op voor een bepaald station."""
+    api_key = 'ad4f9a50a9e7ee1b43a7b3552c979c96'
+    basis_url = 'https://api.openweathermap.org/data/2.5/weather?'
+    url = f"{basis_url}q={plaatsnaam}&appid={api_key}"
+
+    response = requests.get(url)
+    data = response.json()
+
+    if 'main' in data:
+        hoofd = data['main']
+        temp_c = hoofd['temp'] - 273.15
+        vocht = hoofd['humidity']
+        return f"Temperatuur: {round(temp_c, 1)}°C\nVochtigheid: {vocht}%"
+    else:
+        return "Weergegevens niet beschikbaar."
+
+
+def main():
+    data = maak_connectie()
+    gekozen_station = lees_stations()
+    cursor = data.cursor()
+
+    cursor.execute(
+        f"SELECT naam, bericht FROM berichten WHERE station = '{gekozen_station}' ORDER BY datum DESC LIMIT 5"
+    )
+
+    # GUI start hier
+    root = Tk()
+    root.geometry("400x200")
+    root.config(bg="yellow")
+    root.title("Stationszuil - Welkom!")
+
+    def weer_venster():
+        """Opent venster met weerinformatie."""
+        weer_win = Toplevel(root)
+        weer_win.title("Actueel Weerbericht")
+        weer_win.geometry("400x300")
+        weer_win.config(bg="yellow")
+
+        # Gebruik raw-string pad om waarschuwingen te voorkomen
+        image_path = r"C:\Users\Hp\Downloads\weerbericht.png"
+        image = PhotoImage(file=image_path)
+
+        apeldoorn = openweathermap("Apeldoorn")
+        lelystad = openweathermap("Lelystad")
+        leeuwarden = openweathermap("Leeuwarden")
+
+        weer_label = Label(
+            weer_win,
+            text=(
+                f"Het weer in Apeldoorn:\n{apeldoorn}\n\n"
+                f"Het weer in Lelystad:\n{lelystad}\n\n"
+                f"Het weer in Leeuwarden:\n{leeuwarden}"
+            ),
+            font=('Calibri', 12),
+            bg="yellow"
+        )
+        weer_label.pack(pady=10)
+
+    def faciliteiten_venster():
+        """Opent venster met faciliteiteninformatie."""
+        fac_win = Toplevel(root)
+        fac_win.title("Station Faciliteiten")
+        fac_win.geometry("300x300")
+        fac_win.config(bg="lightblue")
+
+        tekst = (
+            "Faciliteiten in Apeldoorn:\n"
+            "• Geen OV-bike\n• Wel lift\n• Geen toilet\n• Wel Park & Ride\n\n"
+            "Faciliteiten in Lelystad:\n"
+            "• OV-bike aanwezig\n• Lift aanwezig\n• Geen toilet\n• Park & Ride aanwezig\n\n"
+            "Faciliteiten in Leeuwarden:\n"
+            "• OV-bike aanwezig\n• Geen lift\n• Wel toilet\n• Geen Park & Ride"
+        )
+
+        Label(fac_win, text=tekst, bg="lightblue", font=('Calibri', 11)).pack(pady=10)
+
+    def berichten_venster():
+        """Toont de 5 meest recente berichten."""
+        berichten_win = Toplevel(root)
+        berichten_win.title("Berichten & Reviews")
+        berichten_win.geometry("600x250")
+        berichten_win.config(bg="yellow")
+
+        lijst_frame = Frame(berichten_win, bg="yellow")
+        lijst_frame.pack(side=LEFT, fill=BOTH, expand=True)
+
+        lijstbox = Listbox(lijst_frame, width=100, height=10)
+        lijstbox.pack(pady=10)
+
+        cursor.execute("SELECT datum, station, naam, bericht FROM berichten ORDER BY datum DESC LIMIT 5")
+        resultaten = cursor.fetchall()
+
+        for bericht in resultaten:
+            datum, station, naam, tekst = bericht
+            weergave = f"{datum} | {station} | {naam}: {tekst}"
+            lijstbox.insert(END, weergave)
+
+        cursor.close()
+
+    # Knoppen
+    Button(root, text="Bekijk het weerbericht", command=weer_venster).pack(pady=10)
+    Button(root, text="Bekijk station faciliteiten", command=faciliteiten_venster).pack(pady=10)
+    Button(root, text="Bekijk recente berichten", command=berichten_venster).pack(pady=10)
+
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()
 
