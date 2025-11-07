@@ -1,0 +1,134 @@
+import csv
+from datetime import datetime
+import psycopg2
+
+
+import psycopg2
+
+def connectie_database():
+    try:
+        conn = psycopg2.connect(
+            host='4.231.108.4',
+            dbname='StationsZuil',
+            user='postgres',
+            port='5432',
+            password='0000'
+        )
+        print("Verbonden met database!")
+        return conn
+    except Exception as e:
+        print("Fout bij verbinden met database:", e)
+        return None
+
+# Voorbeeld van gebruik
+conn = connectie_database()
+
+
+def connectie_sluiten(data):
+    data.close()
+
+
+def berichten_sql(data):
+    berichten_sql = []
+    try:
+        with open('berichten.csv', 'r') as berichten_bestand:
+            reader = csv.reader(berichten_bestand, delimiter=',') # Hier wordt alles gesplitst door middel van een komma.
+            next(reader)
+            berichten = list(reader)
+
+            if len(berichten) > 0: # Als een beoordeling minstens een karakter heeft wordt het geimporteerd en doorgestuurd naar de moderation team.
+                print('Wordt geimporteerd.')
+                with data.cursor() as cursor:
+                    for row in berichten:
+                        momentele_tijd = datetime.now()
+                        datum = datetime.strptime(row[0], '%Y-%m-%d %H-%M-%S').date()
+                        #datum = momentele_tijd.strftime("%Y-%m-%d")
+                        cursor.execute("INSERT INTO berichten (datum, naam, station, bericht) VALUES (%s, %s, %s, %s")
+                data.commit() # Hiermee wordt de data opgeslagen.
+            else:
+                print('Geen berichten te beoordelen.') # Als er geen berichten te beoordelen zijn zal dit geprint worden.
+    except FileNotFoundError: # Als het bestand niet gevonden kon worden, zal deze error geprint worden.
+        print('Error: Bestand is niet gevonden.')
+
+
+def afwachtendebeoordeling(data):
+    with data.cursor() as data:
+        data.execute(
+            "SELECT * FROM berichten" # Hiermee worden alle berichten bekeken via de database.
+
+        )
+        return data.fetchall()
+
+
+def modname(data, email):
+    with data.cursor() as data:
+        data.execute("select naam, email from moderation WHERE email = %s;", [email]) # Hier wordt een moderator gefilterd met behulp van een e-mail.
+        data = data.fetchone() # Per rij (one by one).
+        return data[0] if data else None
+
+
+def modtoevoegen(data, modemail, modnaam):
+    with data.cursor() as data:
+        data.execute("INSERT INTO moderation (naam, email) "
+                     "VALUES (%s, %s);", [modnaam, modemail]) # Dezelfde soort data format wordt hier benoemd.
+        data.commit()
+
+
+def beoordelingedit(data, berichtid, datum, moderatorid, status):
+
+    try:
+        with data.cursor() as cursor:
+            cursor.execute("INSERT INTO beoordeling (berichtid, datum, moderatorid, status) VALUES (%s, %s, %s, %s)",(berichtid, datum, moderatorid, status))
+        data.commit()
+        print('Beoordeling geprint.')
+    except Exception as e:
+        print(f'Fout bij het aanpassen van beoordeling: {str(e)}')
+
+
+def connectie_eindigen(data):
+    data.close()
+
+
+
+while True:
+        print('Gelieve in te loggen als u deel bent van de moderatie. Een fout wachtwoord zal u verwijderen van het programma.')
+        email = input('Vul jouw e-mail in: ') # Moderatie logt hier in.
+        moderator_toegang = 'hoi' # Met deze sleutel kan iemand de moderatie betreden en dus berichten beoordelen.
+        moderator_toetreden = input('Vul hier de toegangscode in: ') # Hier wordt er uiteindelijk een code ingevoerd.
+
+        if moderator_toetreden != moderator_toegang:
+            print('Foute toegangscode.')
+            exit() # Als de sleutel niet gelijk staat aan het antwoord dat iemand geeft, disconnect het programma.
+
+        if moderator_toetreden == 'einde': # Als iemand 'einde' verstuurt, worden zij ook het programma uitgestuurd.
+            exit()
+
+        if moderator_toetreden == moderator_toegang: # Als de sleutel correct is.
+            print('U bent een moderator.')
+            print('Hier zijn de ongecheckte berichten.\n')
+            data = connectie_database()
+            berichten_sql(data)
+            pending = afwachtendebeoordeling(data) # Hier worden de berichten geprint.
+
+            if not pending:
+                print('Er zijn geen verdere beoordelingen ontvangen!') # Als geen berichten afwachtend zijn van een beoordeling, wordt dit geprint.
+            else:
+                for bericht in pending:
+                    print(f"Het volgende bericht is van {bericht[2]} voor het station{bericht[3]} is {bericht[4]}, op {bericht[1]}")
+                    status = input('Bericht goedgekeurd of afgekeurd: ').strip().lower() # Door .lower maakt het gebruik van caps/kleine letters niet uit.
+
+                    if status == 'goedgekeurd':
+                        goedgekeurd = True
+                    elif status == 'afgekeurd':
+                        goedgekeurd = False
+                    else:
+                        print('Kies tussen goedgekeurd of afgekeurd.')
+                        continue
+
+
+                    email = input('Vul jouw e-mail in: ')
+                    print(f"Het bericht is {'goedgekeurd' if goedgekeurd else 'afgekeurd'}.\n")
+
+                    data.commit()
+
+        connectie_eindigen(data)
