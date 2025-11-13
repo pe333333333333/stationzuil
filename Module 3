@@ -118,12 +118,12 @@ def main():
         lijstbox = Listbox(lijst_frame, width=100, height=10)
         lijstbox.pack(pady=10)
 
-        cursor.execute("SELECT datum, station, naam, bericht FROM berichten ORDER BY datum DESC LIMIT 5")
+        cursor.execute("SELECT station, naam, bericht FROM berichten ORDER BY datum DESC LIMIT 5")
         resultaten = cursor.fetchall()
 
         for bericht in resultaten:
             datum, station, naam, tekst = bericht
-            weergave = f"{datum} | {station} | {naam}: {tekst}"
+            weergave = f" {station} | {naam}: {tekst}"
             lijstbox.insert(END, weergave)
 
         cursor.close()
