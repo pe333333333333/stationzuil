@@ -1,134 +1,141 @@
 import csv
-from datetime import datetime
 import psycopg2
+from datetime import datetime as dt
 
+def create_connection():
+    """
+    Maakt verbinding met de database en maakt de standaard tabellen aan, mits
+    deze nog niet bestaan.
 
-import psycopg2
+    :returns De database verbinding
+    """
+    conn = psycopg2.connect(
+        dbname='Stationszuil',
+        user='postgres',
+        password='0000',
+        host='localhost',
+        port='5432'
+    )
+    return conn
 
-def connectie_database():
+def insert_reviews(conn):
+    """
+    Leest het reviews bestand uit, leegt het bestand, en zet vervolgens alle
+    reviews in de database.
+
+    :param conn: De database verbinding
+    """
     try:
-        conn = psycopg2.connect(
-            host='4.231.108.4',
-            dbname='Station_zuil',
-            user='postgres',
-            port='5432',
-            password='0000'
-        )
-        print("Verbonden met database!")
-        return conn
-    except Exception as e:
-        print("Fout bij verbinden met database:", e)
-        return None
+        with open('reviews.csv', 'r+') as reviews_file:
+            reader = csv.reader(reviews_file)
+            reviews = list(reader)
+            reviews_file.truncate(0)
 
-# Voorbeeld van gebruik
-conn = connectie_database()
-
-
-def connectie_sluiten(data):
-    data.close()
-
-
-def berichten_sql(data):
-    berichten_sql = []
-    try:
-        with open('berichten.csv', 'r') as berichten_bestand:
-            reader = csv.reader(berichten_bestand, delimiter=',') # Hier wordt alles gesplitst door middel van een komma.
-            next(reader)
-            berichten = list(reader)
-
-            if len(berichten) > 0: # Als een beoordeling minstens een karakter heeft wordt het geimporteerd en doorgestuurd naar de moderation team.
-                print('Wordt geimporteerd.')
-                with data.cursor() as cursor:
-                    for row in berichten:
-                        momentele_tijd = datetime.now()
-                        datum = datetime.strptime(row[0], '%Y-%m-%d %H-%M-%S').date()
-                        #datum = momentele_tijd.strftime("%Y-%m-%d")
-                        cursor.execute("INSERT INTO berichten (datum, naam, station, bericht) VALUES (%s, %s, %s, %s")
-                data.commit() # Hiermee wordt de data opgeslagen.
+            if reviews:
+                print('Alleproject statsionszuil reviews importeren in de database...')
+                with conn.cursor() as cur:
+                    for review in reviews:
+                        cur.execute(
+                            "INSERT INTO review (bericht, naam, station, datum) "
+                            "VALUES (%s, %s, %s, %s)", review
+                        )
+                    conn.commit()
+                    print('Klaar!\n')
             else:
-                print('Geen berichten te beoordelen.') # Als er geen berichten te beoordelen zijn zal dit geprint worden.
-    except FileNotFoundError: # Als het bestand niet gevonden kon worden, zal deze error geprint worden.
-        print('Error: Bestand is niet gevonden.')
+                print('Geen reviews om te importeren.')
+    except FileNotFoundError:
+        print('Geen reviews om te importeren.')
 
+def get_reviews(conn):
+    """
+    Returned een lijst met alle reviews die nog niet zijn beoordeeld.
 
-def afwachtendebeoordeling(data):
-    with data.cursor() as data:
-        data.execute(
-            "SELECT * FROM berichten" # Hiermee worden alle berichten bekeken via de database.
-
+    :param conn: De database verbinding
+    :returns: Een lijst met tuples met daarin de gegevens van de review
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM review r "
+            "WHERE NOT EXISTS (SELECT * FROM beoordeling b WHERE b.review_id = r.id);"
         )
-        return data.fetchall()
+        return cur.fetchall()
 
+def get_moderator_name(conn, moderator_email):
+    """
+    Controleert of de moderator al bestaat in de database en returned de naam
+    van deze moderator als dat zo is. Zo nee, dan wordt er niks gereturned.
 
-def modname(data, email):
-    with data.cursor() as data:
-        data.execute("select naam, email from moderation WHERE email = %s;", [email]) # Hier wordt een moderator gefilterd met behulp van een e-mail.
-        data = data.fetchone() # Per rij (one by one).
+    :param conn: De database verbinding
+    :param moderator_email: De e-mail van de moderator
+    :return: De naam van de moderator of niks
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT naam FROM moderator WHERE email = %s;", [moderator_email])
+        data = cur.fetchone()
         return data[0] if data else None
 
+def insert_moderator(conn, moderator_email, moderator_name):
+    """
+    Zet een nieuwe moderator in de database.
 
-def modtoevoegen(data, modemail, modnaam):
-    with data.cursor() as data:
-        data.execute("INSERT INTO moderation (naam, email) "
-                     "VALUES (%s, %s);", [modnaam, modemail]) # Dezelfde soort data format wordt hier benoemd.
-        data.commit()
+    :param conn: De database verbinding
+    :param moderator_email: De e-mail van de moderator
+    :param moderator_name: De naam van de moderator
+    """
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO moderator (email, naam) VALUES (%s, %s);", [moderator_email, moderator_name])
+        conn.commit()
 
+def insert_beoordeling(conn, beoordeling):
+    """
+    Zet een beoordeling in de database.
 
-def beoordelingedit(data, berichtid, datum, moderatorid, status):
+    :param conn: De database verbinding
+    :param beoordeling: Een tuple met de beoordelinggegevens.
+    """
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO beoordeling (review_id, goedgekeurd, datum, moderator_email) VALUES (%s, %s, %s, %s)", beoordeling)
+        conn.commit()
 
-    try:
-        with data.cursor() as cursor:
-            cursor.execute("INSERT INTO beoordeling (berichtid, datum, moderatorid, status) VALUES (%s, %s, %s, %s)",(berichtid, datum, moderatorid, status))
-        data.commit()
-        print('Beoordeling geprint.')
-    except Exception as e:
-        print(f'Fout bij het aanpassen van beoordeling: {str(e)}')
+# Hoofdlogica
+conn = create_connection()
+insert_reviews(conn)
 
-
-def connectie_eindigen(data):
-    data.close()
-
-
-
+print('Moderator login\n---------------')
 while True:
-        print('Gelieve in te loggen als u deel bent van de moderatie. Een fout wachtwoord zal u verwijderen van het programma.')
-        email = input('Vul jouw e-mail in: ') # Moderatie logt hier in.
-        moderator_toegang = 'hoi' # Met deze sleutel kan iemand de moderatie betreden en dus berichten beoordelen.
-        moderator_toetreden = input('Vul hier de toegangscode in: ') # Hier wordt er uiteindelijk een code ingevoerd.
+    moderator_email = input('Wat is uw e-mailadres?\n')
+    if not moderator_email.strip():
+        print('Vul uw e-mailadres in.')
+        continue
+    moderator_name = get_moderator_name(conn, moderator_email)
+    if moderator_name:
+        print(f'Welkom terug, {moderator_name}!\n')
+    else:
+        while True:
+            moderator_name = input('Wat is uw naam?\n')
+            if not moderator_name.strip():
+                print('Vul uw naam in.')
+                continue
+            insert_moderator(conn, moderator_email, moderator_name)
+            print(f'Welkom, {moderator_name}!\n')
+            break
+    break
 
-        if moderator_toetreden != moderator_toegang:
-            print('Foute toegangscode.')
-            exit() # Als de sleutel niet gelijk staat aan het antwoord dat iemand geeft, disconnect het programma.
+print('Beoordeel de volgende reviews:\n------------------------------')
+beoordelingen = ['Afkeuren', 'Goedkeuren']
+antwoorden = ['afgekeurd', 'goedgekeurd']
 
-        if moderator_toetreden == 'einde': # Als iemand 'einde' verstuurt, worden zij ook het programma uitgestuurd.
-            exit()
+for review in get_reviews(conn):
+    print(f'{review[2]} zei op {dt.strftime(review[4], "%d %B %Y, %H:%M:%S")} in {review[3]}:\n{review[1]}')
+    index = int(input(f'Goedkeuren (1) of Afkeuren (0)? [1/0]: '))
 
-        if moderator_toetreden == moderator_toegang: # Als de sleutel correct is.
-            print('U bent een moderator.')
-            print('Hier zijn de ongecheckte berichten.\n')
-            data = connectie_database()
-            berichten_sql(data)
-            pending = afwachtendebeoordeling(data) # Hier worden de berichten geprint.
+    # Verzamel datum en stel beoordeling samen
+    beoordeling_datum = dt.now()
+    beoordeling = (review[0], bool(index), beoordeling_datum, moderator_email)
 
-            if not pending:
-                print('Er zijn geen verdere beoordelingen ontvangen!') # Als geen berichten afwachtend zijn van een beoordeling, wordt dit geprint.
-            else:
-                for bericht in pending:
-                    print(f"Het volgende bericht is van {bericht[2]} voor het station{bericht[3]} is {bericht[4]}, op {bericht[1]}")
-                    status = input('Bericht goedgekeurd of afgekeurd: ').strip().lower() # Door .lower maakt het gebruik van caps/kleine letters niet uit.
+    # Schrijf naar database
+    insert_beoordeling(conn, beoordeling)
+    print(f"Succesvol {antwoorden[index]}.\n")
 
-                    if status == 'goedgekeurd':
-                        goedgekeurd = True
-                    elif status == 'afgekeurd':
-                        goedgekeurd = False
-                    else:
-                        print('Kies tussen goedgekeurd of afgekeurd.')
-                        continue
-
-
-                    email = input('Vul jouw e-mail in: ')
-                    print(f"Het bericht is {'goedgekeurd' if goedgekeurd else 'afgekeurd'}.\n")
-
-                    data.commit()
-
-        connectie_eindigen(data)
+print(f"Alle reviews zijn beoordeeld. Bedankt {moderator_name}!")
+conn.close()
