@@ -1,141 +1,144 @@
-import psycopg2
 import tkinter as tk
 import requests
-from tkinter import *
-import datetime
 import json
-import random
-from tkinter import PhotoImage
+import psycopg2
+from PIL import Image, ImageTk
 
-def maak_connectie():
-    """Verbinding met de database maken."""
-    verbinding = psycopg2.connect(
-        host='4.231.108.4',       # IP van mijn Azure-server
-        dbname='Stationszuil',     # Database naam
+
+def create_connection():
+    """
+    Maakt verbinding met de database en maakt de standaard tabellen aan, mits
+    deze nog niet bestaan.
+
+    :returns De database verbinding
+    """
+    conn = psycopg2.connect(
+        dbname='Stationszuil',
         user='postgres',
-        port='5432',               # Standaard PostgreSQL poort
-        password='0000'  # Wachtwoord
+        password='0000',
+        host='localhost',
+        port='5432'
     )
-    return verbinding
+    return conn
 
 
-def lees_stations():
-    """Leest alle stations uit een tekstbestand."""
-    with open('stations.txt', 'r') as bestand:
-        stations = bestand.read().splitlines()
-    gekozen_station = random.choice(stations)
-    return gekozen_station
+def get_recent_reviews(station):
+    """
+    Haalt de 5 meest recente reviews van dit station uit de database.
+    """
+    with create_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT review.bericht, review.naam 
+                FROM review 
+                INNER JOIN beoordeling ON review.id = beoordeling.review_id 
+                WHERE beoordeling.goedgekeurd = true AND review.station = %s 
+                ORDER BY beoordeling.datum DESC 
+                LIMIT 5
+            """, [station])
+            return cur.fetchall()
 
 
-def openweathermap(plaatsnaam):
-    """Haalt het weer op voor een bepaald station."""
-    api_key = 'ad4f9a50a9e7ee1b43a7b3552c979c96'
-    basis_url = 'https://api.openweathermap.org/data/2.5/weather?'
-    url = f"{basis_url}q={plaatsnaam}&appid={api_key}"
-
-    response = requests.get(url)
-    data = response.json()
-
-    if 'main' in data:
-        hoofd = data['main']
-        temp_c = hoofd['temp'] - 273.15
-        vocht = hoofd['humidity']
-        return f"Temperatuur: {round(temp_c, 1)}°C\nVochtigheid: {vocht}%"
-    else:
-        return "Weergegevens niet beschikbaar."
+def get_faciliteiten(station):
+    """
+    Haalt faciliteiten op voor het gegeven station.
+    """
+    with create_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ov_fiets, lift, toilet, park_and_ride FROM stations WHERE station=%s", [station])
+            return cur.fetchone()
 
 
-def main():
-    data = maak_connectie()
-    gekozen_station = lees_stations()
-    cursor = data.cursor()
+def get_weersvoorspelling(station):
+    """
+    Haalt de weersvoorspelling op van het gegeven station via de OpenWeatherMap API.
+    """
+    api_key = '1c228a939f41c2131559ca8ea37f903d'  # Jouw API-sleutel
+    response = requests.get(
+        f'https://api.openweathermap.org/data/2.5/weather?q={station},nl&APPID={api_key}&units=metric')
+    return response.json()
 
-    cursor.execute(
-        f"SELECT naam, bericht FROM berichten WHERE station = '{gekozen_station}' ORDER BY datum DESC LIMIT 5"
-    )
 
-    # GUI start hier
-    root = Tk()
-    root.geometry("400x200")
-    root.config(bg="yellow")
-    root.title("Stationszuil - Welkom!")
+class Stationsscherm:
+    def __init__(self, root):
+        self.root = root
+        self.root.title('Stationsinformatie')
+        self.station = None
+        self.init_ui()
 
-    def weer_venster():
-        """Opent venster met weerinformatie."""
-        weer_win = Toplevel(root)
-        weer_win.title("Actueel Weerbericht")
-        weer_win.geometry("400x300")
-        weer_win.config(bg="yellow")
+    def init_ui(self):
+        # Stationselectie
+        self.label = tk.Label(self.root, text='Selecteer een station:')
+        self.label.pack()
 
-        # Gebruik raw-string pad om waarschuwingen te voorkomen
-        image_path = r"C:\Users\Hp\Downloads\weerbericht.png"
-        image = PhotoImage(file=image_path)
+        self.station_var = tk.StringVar()
+        self.station_menu = tk.OptionMenu(self.root, self.station_var, *self.get_stations(),
+                                          command=self.update_station)
+        self.station_menu.pack()
 
-        apeldoorn = openweathermap("Apeldoorn")
-        lelystad = openweathermap("Lelystad")
-        leeuwarden = openweathermap("Leeuwarden")
+        self.info_button = tk.Button(self.root, text='Toon informatie', command=self.show_info)
+        self.info_button.pack()
 
-        weer_label = Label(
-            weer_win,
-            text=(
-                f"Het weer in Apeldoorn:\n{apeldoorn}\n\n"
-                f"Het weer in Lelystad:\n{lelystad}\n\n"
-                f"Het weer in Leeuwarden:\n{leeuwarden}"
-            ),
-            font=('Calibri', 12),
-            bg="yellow"
-        )
-        weer_label.pack(pady=10)
+    def get_stations(self):
+        with open('stations.txt', 'r') as file:
+            return file.read().splitlines()
 
-    def faciliteiten_venster():
-        """Opent venster met faciliteiteninformatie."""
-        fac_win = Toplevel(root)
-        fac_win.title("Station Faciliteiten")
-        fac_win.geometry("300x300")
-        fac_win.config(bg="lightblue")
+    def update_station(self, station):
+        self.station = station
 
-        tekst = (
-            "Faciliteiten in Apeldoorn:\n"
-            "• Geen OV-bike\n• Wel lift\n• Geen toilet\n• Wel Park & Ride\n\n"
-            "Faciliteiten in Lelystad:\n"
-            "• OV-bike aanwezig\n• Lift aanwezig\n• Geen toilet\n• Park & Ride aanwezig\n\n"
-            "Faciliteiten in Leeuwarden:\n"
-            "• OV-bike aanwezig\n• Geen lift\n• Wel toilet\n• Geen Park & Ride"
-        )
+    def show_info(self):
+        if not self.station:
+            return
 
-        Label(fac_win, text=tekst, bg="lightblue", font=('Calibri', 11)).pack(pady=10)
+        reviews = get_recent_reviews(self.station)
+        faciliteiten = get_faciliteiten(self.station)
+        weersvoorspelling = get_weersvoorspelling(self.station)
 
-    def berichten_venster():
-        """Toont de 5 meest recente berichten."""
-        berichten_win = Toplevel(root)
-        berichten_win.title("Berichten & Reviews")
-        berichten_win.geometry("600x250")
-        berichten_win.config(bg="yellow")
+        # Maak een nieuw venster voor de info
+        info_window = tk.Toplevel(self.root)
+        info_window.title(f'Informatie voor {self.station}')
 
-        lijst_frame = Frame(berichten_win, bg="yellow")
-        lijst_frame.pack(side=LEFT, fill=BOTH, expand=True)
+        # Weer
+        tk.Label(info_window, text=f"Weer: {weersvoorspelling['weather'][0]['description']}", font=('Arial', 14)).pack(
+            pady=5)
+        tk.Label(info_window, text=f"Temperatuur: {weersvoorspelling['main']['temp']} °C", font=('Arial', 14)).pack(
+            pady=5)
 
-        lijstbox = Listbox(lijst_frame, width=100, height=10)
-        lijstbox.pack(pady=10)
+        # Faciliteiten
+        tk.Label(info_window, text='Beschikbare faciliteiten:', font=('Arial', 16, 'bold')).pack(pady=(10, 5))
 
-        cursor.execute("SELECT station, naam, bericht FROM berichten ORDER BY datum DESC LIMIT 5")
-        resultaten = cursor.fetchall()
+        # Frame voor de faciliteiten
+        faciliteiten_frame = tk.Frame(info_window)
+        faciliteiten_frame.pack(pady=10)
 
-        for bericht in resultaten:
-            datum, station, naam, tekst = bericht
-            weergave = f" {station} | {naam}: {tekst}"
-            lijstbox.insert(END, weergave)
+        icon_names = ['OV-fiets', 'Lift', 'Toilet', 'P&R']
+        icons = ['ov_fiets', 'lift', 'toilet', 'park_and_ride']
 
-        cursor.close()
+        for i in range(len(icons)):
+            if faciliteiten[i]:  # Controleer of de faciliteit beschikbaar is
+                icon_path = f'Icons/{icons[i]}.png'  # Pad naar de afbeelding
+                try:
+                    image = Image.open(icon_path).resize((64, 64), Image.LANCZOS)  # Grotere afbeeldingen
+                    icon_image = ImageTk.PhotoImage(image)
 
-    # Knoppen
-    Button(root, text="Bekijk het weerbericht", command=weer_venster).pack(pady=10)
-    Button(root, text="Bekijk station faciliteiten", command=faciliteiten_venster).pack(pady=10)
-    Button(root, text="Bekijk recente berichten", command=berichten_venster).pack(pady=10)
+                    # Label voor afbeelding
+                    icon_label = tk.Label(faciliteiten_frame, image=icon_image)
+                    icon_label.image = icon_image  # Bewaar referentie
+                    icon_label.grid(row=0, column=i, padx=10)  # Gebruik grid voor uitlijning
 
+                    # Label voor naam
+                    tk.Label(faciliteiten_frame, text=icon_names[i], font=('Arial', 12)).grid(row=1, column=i, pady=(
+                    5, 0))  # Label onder de afbeelding
+                except Exception as e:
+                    print(f"Fout bij het laden van de afbeelding {icon_path}: {e}")
+
+        # Recent reviews
+        tk.Label(info_window, text='Recente reviews:', font=('Arial', 16, 'bold')).pack(pady=(10, 5))
+        for review in reviews:
+            tk.Label(info_window, text=f"{review[0]} - {review[1]}", font=('Arial', 12)).pack()
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = Stationsscherm(root)
     root.mainloop()
-
-
-if __name__ == '__main__':
-    main()
-
